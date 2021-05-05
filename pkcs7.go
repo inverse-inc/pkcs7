@@ -158,6 +158,7 @@ func Parse(data []byte) (p7 *PKCS7, err error) {
 	}
 	var info contentInfo
 	der, err := ber2der(data)
+
 	if err != nil {
 		return nil, err
 	}

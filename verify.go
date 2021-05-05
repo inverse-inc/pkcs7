@@ -53,6 +53,7 @@ func verifySignature(p7 *PKCS7, signer signerInfo, truststore *x509.CertPool) (e
 		h := hash.New()
 		h.Write(p7.Content)
 		computed := h.Sum(nil)
+
 		if subtle.ConstantTimeCompare(digest, computed) != 1 {
 			return &MessageDigestMismatchError{
 				ExpectedDigest: digest,
@@ -113,6 +114,7 @@ func (p7 *PKCS7) UnmarshalSignedAttribute(attributeType asn1.ObjectIdentifier, o
 func parseSignedData(data []byte) (*PKCS7, error) {
 	var sd signedData
 	asn1.Unmarshal(data, &sd)
+
 	certs, err := sd.Certificates.Parse()
 	if err != nil {
 		return nil, err
@@ -120,29 +122,45 @@ func parseSignedData(data []byte) (*PKCS7, error) {
 	// fmt.Printf("--> Signed Data Version %d\n", sd.Version)
 
 	var compound asn1.RawValue
-	var content unsignedData
 
 	// The Content.Bytes maybe empty on PKI responses.
+
+	if rest, err := asn1.Unmarshal(sd.ContentInfo.Content.Bytes, &compound); err != nil {
+		return nil, err
+	} else if len(rest) > 0 {
+		return nil, errors.New("unexpected trailing data")
+	}
+
+	if compound.Class != asn1.ClassUniversal || compound.Tag != asn1.TagOctetString {
+		return nil, errors.New("bad tag or class")
+	}
+
 	if len(sd.ContentInfo.Content.Bytes) > 0 {
 		if _, err := asn1.Unmarshal(sd.ContentInfo.Content.Bytes, &compound); err != nil {
 			return nil, err
 		}
 	}
-	// Compound octet string
+
+	var value []byte
+
 	if compound.IsCompound {
-		if compound.Tag == 4 {
-			if _, err = asn1.Unmarshal(compound.Bytes, &content); err != nil {
+		rest := compound.Bytes
+		for len(rest) > 0 {
+			if rest, err = asn1.Unmarshal(rest, &compound); err != nil {
 				return nil, err
 			}
-		} else {
-			content = compound.Bytes
+			// Don't allow further constructed types.
+			if compound.Class != asn1.ClassUniversal || compound.Tag != asn1.TagOctetString || compound.IsCompound {
+				return nil, errors.New("bad class or tag")
+			}
+			value = append(value, compound.Bytes...)
 		}
 	} else {
-		// assuming this is tag 04
-		content = compound.Bytes
+		value = compound.Bytes
 	}
+
 	return &PKCS7{
-		Content:      content,
+		Content:      value,
 		Certificates: certs,
 		CRLs:         sd.CRLs,
 		Signers:      sd.SignerInfos,
@@ -199,13 +217,19 @@ func getSignatureAlgorithm(digestEncryption, digest pkix.AlgorithmIdentifier) (x
 		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA384),
 		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA512):
 		switch {
-		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA1):
+		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA1),
+			// Some Microsoft issued certificates use the general RSA algorithm
+			// for the encrypt OID and the digest+algorithm OID for the digest.
+			digest.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA1):
 			return x509.SHA1WithRSA, nil
-		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA256):
+		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA256),
+			digest.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA256):
 			return x509.SHA256WithRSA, nil
-		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA384):
+		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA384),
+			digest.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA384):
 			return x509.SHA384WithRSA, nil
-		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA512):
+		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA512),
+			digest.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA512):
 			return x509.SHA512WithRSA, nil
 		default:
 			return -1, fmt.Errorf("pkcs7: unsupported digest %q for encryption algorithm %q",
@@ -214,7 +238,8 @@ func getSignatureAlgorithm(digestEncryption, digest pkix.AlgorithmIdentifier) (x
 	case digestEncryption.Algorithm.Equal(OIDDigestAlgorithmDSA),
 		digestEncryption.Algorithm.Equal(OIDDigestAlgorithmDSASHA1):
 		switch {
-		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA1):
+		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA1),
+			digest.Algorithm.Equal(OIDDigestAlgorithmDSASHA1):
 			return x509.DSAWithSHA1, nil
 		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA256):
 			return x509.DSAWithSHA256, nil
