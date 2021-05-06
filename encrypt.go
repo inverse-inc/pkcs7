@@ -60,7 +60,7 @@ const (
 // ContentEncryptionAlgorithm determines the algorithm used to encrypt the
 // plaintext message. Change the value of this variable to change which
 // algorithm is used in the Encrypt() function.
-var ContentEncryptionAlgorithm = EncryptionAlgorithmDESCBC
+var ContentEncryptionAlgorithm = EncryptionAlgorithmAES128CBC
 
 // ErrUnsupportedEncryptionAlgorithm is returned when attempting to encrypt
 // content with an unsupported algorithm.
