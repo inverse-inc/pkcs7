@@ -8,6 +8,7 @@ import (
 	"crypto/des"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/x509"
 	"encoding/asn1"
 	"errors"
@@ -27,16 +28,27 @@ func (p7 *PKCS7) Decrypt(cert *x509.Certificate, pkey crypto.PrivateKey) ([]byte
 		return nil, ErrNotEncryptedContent
 	}
 	recipient := selectRecipientForCertificate(data.RecipientInfos, cert)
+
 	if recipient.EncryptedKey == nil {
 		return nil, errors.New("pkcs7: no enveloped recipient for provided certificate")
 	}
 	switch pkey := pkey.(type) {
 	case *rsa.PrivateKey:
 		var contentKey []byte
-		contentKey, err := rsa.DecryptPKCS1v15(rand.Reader, pkey, recipient.EncryptedKey)
-		if err != nil {
-			return nil, err
+		var err error
+		if (recipient.KeyEncryptionAlgorithm.Algorithm.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 7})) {
+			hash := sha1.New()
+			contentKey, err = rsa.DecryptOAEP(hash, rand.Reader, pkey, recipient.EncryptedKey, nil)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			contentKey, err = rsa.DecryptPKCS1v15(rand.Reader, pkey, recipient.EncryptedKey)
+			if err != nil {
+				return nil, err
+			}
 		}
+
 		return data.EncryptedContentInfo.decrypt(contentKey)
 	}
 	return nil, ErrUnsupportedAlgorithm
