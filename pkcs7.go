@@ -117,7 +117,20 @@ func getDigestOIDForSignatureAlgorithm(digestAlg x509.SignatureAlgorithm) (asn1.
 // getOIDForEncryptionAlgorithm takes the private key type of the signer and
 // the OID of a digest algorithm to return the appropriate signerInfo.DigestEncryptionAlgorithm
 func getOIDForEncryptionAlgorithm(pkey crypto.PrivateKey, OIDDigestAlg asn1.ObjectIdentifier) (asn1.ObjectIdentifier, error) {
+	keyType := pkey
 	switch pkey.(type) {
+	case *rsa.PrivateKey, *ecdsa.PrivateKey, *dsa.PrivateKey:
+	case crypto.Signer:
+		// Keys that can't be exported (e.g. held in an HSM): pick the
+		// algorithm from the public key.
+		switch pkey.(crypto.Signer).Public().(type) {
+		case *rsa.PublicKey:
+			keyType = (*rsa.PrivateKey)(nil)
+		case *ecdsa.PublicKey:
+			keyType = (*ecdsa.PrivateKey)(nil)
+		}
+	}
+	switch keyType.(type) {
 	case *rsa.PrivateKey:
 		switch {
 		default:

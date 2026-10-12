@@ -50,6 +50,22 @@ func (p7 *PKCS7) Decrypt(cert *x509.Certificate, pkey crypto.PrivateKey) ([]byte
 		}
 
 		return data.EncryptedContentInfo.decrypt(contentKey)
+	case crypto.Decrypter:
+		// RSA keys that can't be exported, e.g. held in an HSM.
+		if _, ok := pkey.Public().(*rsa.PublicKey); !ok {
+			break
+		}
+		var opts crypto.DecrypterOpts
+		if (recipient.KeyEncryptionAlgorithm.Algorithm.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 7})) {
+			opts = &rsa.OAEPOptions{Hash: crypto.SHA1}
+		} else {
+			opts = &rsa.PKCS1v15DecryptOptions{}
+		}
+		contentKey, err := pkey.Decrypt(rand.Reader, recipient.EncryptedKey, opts)
+		if err != nil {
+			return nil, err
+		}
+		return data.EncryptedContentInfo.decrypt(contentKey)
 	}
 	return nil, ErrUnsupportedAlgorithm
 }
