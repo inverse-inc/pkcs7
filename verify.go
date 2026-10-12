@@ -123,21 +123,17 @@ func parseSignedData(data []byte) (*PKCS7, error) {
 
 	var compound asn1.RawValue
 
-	// The Content.Bytes maybe empty on PKI responses.
-
-	if rest, err := asn1.Unmarshal(sd.ContentInfo.Content.Bytes, &compound); err != nil {
-		return nil, err
-	} else if len(rest) > 0 {
-		return nil, errors.New("unexpected trailing data")
-	}
-
-	if compound.Class != asn1.ClassUniversal || compound.Tag != asn1.TagOctetString {
-		return nil, errors.New("bad tag or class")
-	}
-
+	// The Content.Bytes maybe empty on PKI responses, e.g. a degenerate
+	// certs-only SignedData.
 	if len(sd.ContentInfo.Content.Bytes) > 0 {
-		if _, err := asn1.Unmarshal(sd.ContentInfo.Content.Bytes, &compound); err != nil {
+		if rest, err := asn1.Unmarshal(sd.ContentInfo.Content.Bytes, &compound); err != nil {
 			return nil, err
+		} else if len(rest) > 0 {
+			return nil, errors.New("unexpected trailing data")
+		}
+
+		if compound.Class != asn1.ClassUniversal || compound.Tag != asn1.TagOctetString {
+			return nil, errors.New("bad tag or class")
 		}
 	}
 

@@ -105,3 +105,26 @@ func TestSignWithOpaqueKey(t *testing.T) {
 		})
 	}
 }
+
+// A degenerate certs-only SignedData (no content, no signers) parses.
+func TestParseDegenerateCertificate(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := opaqueTestCert(t, key)
+	der, err := DegenerateCertificate(cert.Raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p7, err := Parse(der)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(p7.Certificates) != 1 || !p7.Certificates[0].Equal(cert) {
+		t.Fatalf("got %d certificates", len(p7.Certificates))
+	}
+	if len(p7.Content) != 0 {
+		t.Fatalf("unexpected content %x", p7.Content)
+	}
+}
